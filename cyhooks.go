@@ -71,7 +71,6 @@ func Index(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
 	sshPath := event.String()
 	go func() {
 		var err error
-		var out []byte
 
 		log.Println("updating", repo)
 		if !event.Master() {
