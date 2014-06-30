@@ -15,13 +15,13 @@
     <div class="panel {{if .Ok}}panel-success{{ else if eq .Status "failed" }}panel-danger{{ else }}panel-default{{ end }}">
       <div class="panel-heading">
       <a data-toggle="collapse" data-parent="#accordion" href="#collapse{{.Id}}">
-      {{.Repo}} {{.Status}} - webhook {{.Id}}
+      {{.Repo}} {{.Status}}
       </a>
       </div>
       <div id="collapse{{.Id}}" class="panel-collapse collapse">
       <div class="panel-body">
       <code>
-        {{.Output|}}
+        {{.Output}}
       </code>
       </div>
       </div>

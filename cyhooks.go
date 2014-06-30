@@ -74,13 +74,13 @@ func Index(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
 	}
 
 	// getting last 10 events
-	j := 0
+	j := int64(0)
 	count := int64(10)
-	if counter < count {
+	if counter <= count {
 		count = counter
 	}
-	lastEvents := make([]*HookEvent, count+1)
-	for i := counter - 1; i >= 0; i -= 1 {
+	lastEvents := make([]*HookEvent, count)
+	for i := counter - 1; j < count; i -= 1 {
 		lastEvents[j] = events[i]
 		j += 1
 	}
