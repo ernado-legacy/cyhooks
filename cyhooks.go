@@ -1,9 +1,12 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"github.com/julienschmidt/httprouter"
+	"html/template"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -11,7 +14,11 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"time"
 )
+
+var counter int64
+var events = make(map[int64]*HookEvent)
 
 type PushEvent struct {
 	After      string `json:"after"`
@@ -19,6 +26,69 @@ type PushEvent struct {
 	Repository struct {
 		Url string `json:"url"`
 	} `json:"repository"`
+}
+
+type HookEvent struct {
+	Id        int64
+	Repo      string
+	Status    string
+	Time      time.Time
+	OutputRaw bytes.Buffer
+	Ok        bool
+}
+
+func (e *HookEvent) Output() string {
+	return string(e.OutputRaw.Bytes())
+}
+
+func (e *HookEvent) Fail() {
+	e.Ok = false
+	e.SetStatus("failed")
+}
+
+func (e *HookEvent) Build() {
+	e.Ok = true
+	e.SetStatus("ok")
+}
+
+func NewHookEvent(repo string) *HookEvent {
+	h := new(HookEvent)
+	events[counter] = h
+	h.Id = counter
+	counter += 1
+	h.Status = "starting"
+	h.Repo = repo
+	h.Time = time.Now()
+	return h
+}
+
+func (e *HookEvent) SetStatus(status string) {
+	e.Status = status
+}
+
+func Index(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
+	t, err := template.ParseFiles("static/index.html")
+	if err != nil {
+		log.Println(err)
+		return
+	}
+
+	// getting last 10 events
+	j := 0
+	count := int64(10)
+	if counter < count {
+		count = counter
+	}
+	lastEvents := make([]*HookEvent, count)
+	for i := counter - 1; i >= 0; i -= 1 {
+		lastEvents[j] = events[i]
+		j += 1
+	}
+
+	if err = t.Execute(w, lastEvents); err != nil {
+		log.Println(err)
+		return
+	}
 }
 
 func (event *PushEvent) Master() bool {
@@ -35,35 +105,7 @@ func (event *PushEvent) String() string {
 	return fmt.Sprintf("git@github.com:%s/%s.git", user, repo)
 }
 
-// {"ref":"refs/heads/master",
-// "after":"1d04f4b319c384316d7b366216d3bdf49cb5f471",
-// "before":"3ba2264f7df80192ed8a573e6fa9dc0fb9375171",
-// "created":false,"deleted":false,"forced":false,
-// "compare":"https://github.com/ernado/poputchiki/compare/3ba2264f7df8...1d04f4b319c3",
-// "commits":[{"id":"1d04f4b319c384316d7b366216d3bdf49cb5f471","distinct":true,
-// "message":"added comments","timestamp":"2014-06-30T13:28:42+04:00"
-// ,"url":"https://github.com/ernado/poputchiki/commit/1d04f4b319c384316d7b366216d3bdf49cb5f471",
-// "author":{"name":"ernado","email":"ernado@ya.ru","username":"ernado"},
-// "committer":{"name":"ernado","email":"ernado@ya.ru","username":"ernado"}
-// ,"added":[],"removed":[],"modified":["transactions.go"]}],
-// "head_commit":{"id":"1d04f4b319c384316d7b366216d3bdf49cb5f471"
-// ,"distinct":true,"message":"added comments","timestamp":"2014-06-30T13:28:42+04:00",
-// "url":"https://github.com/ernado/poputchiki/commit/1d04f4b319c384316d7b366216d3bdf49cb5f471",
-// "author":{"name":"ernado","email":"ernado@ya.ru","username":"ernado"},
-// "committer":{"name":"ernado","email":"ernado@ya.ru","username":"ernado"},
-// "added":[],"removed":[],"modified":["transactions.go"]},
-
-// "repository":{"id":20809005,"name":"poputchiki","url":"https://github.com/ernado/poputchiki",
-// "description":"poputchiki-api","homepage":"cydev.poputchiki.ru",
-// "watchers":0,"stargazers":0,"forks":0,"fork":false,"size":5248,
-// "owner":{"name":"ernado","email":"ernado@ya.ru"},
-// "private":true,"open_issues":0,
-// "has_issues":true,"has_downloads":true,
-// "has_wiki":true,"language":"Go","created_at":1402673981,
-// "pushed_at":1404120511,"master_branch":"master"},
-// "pusher":{"name":"ernado","email":"ernado@ya.ru"}}
-
-func Index(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
+func Handle(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
 	decoder := json.NewDecoder(r.Body)
 	event := new(PushEvent)
 	decoder.Decode(event)
@@ -71,10 +113,17 @@ func Index(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
 	sshPath := event.String()
 	go func() {
 		var err error
+		pushEvent := NewHookEvent(repo)
+		buffer := &pushEvent.OutputRaw
+		stdout := io.MultiWriter(os.Stdout, buffer)
+		stderr := io.MultiWriter(os.Stderr, buffer)
+		log.SetOutput(stdout)
+		defer log.SetOutput(os.Stdout)
 
 		log.Println("updating", repo)
 		if !event.Master() {
-			log.Println("not mester, aborting")
+			log.Println("not master, aborting")
+			pushEvent.Build()
 			return
 		}
 
@@ -90,27 +139,33 @@ func Index(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
 			cmd.Dir = path
 		}
 
-		cmd.Stderr = os.Stderr
-		cmd.Stdout = os.Stdout
+		cmd.Stderr = stderr
+		cmd.Stdout = stdout
 		if err = os.MkdirAll(cmd.Dir, 0777); err != nil {
 			log.Println(cmd.Dir, err)
+			pushEvent.Fail()
 			return
 		}
+		pushEvent.SetStatus("pulling")
 		if err = cmd.Run(); err != nil {
 			log.Println("failed to pull:", err)
+			pushEvent.Fail()
 			return
 		}
 
 		log.Println("updating")
+		pushEvent.SetStatus("updating")
 		cmd = exec.Command("fab", "update")
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
+		cmd.Stdout = stdout
+		cmd.Stderr = stderr
 		cmd.Dir = path
 		err = cmd.Run()
 		if err != nil {
 			log.Print("failed to update:", err)
+			pushEvent.Fail()
 			return
 		}
+		pushEvent.Build()
 		log.Println(repo, "updated")
 	}()
 	log.Println("webhook for", repo, "processed")
@@ -120,7 +175,9 @@ func Index(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
 func main() {
 	runtime.GOMAXPROCS(runtime.NumCPU())
 	router := httprouter.New()
-	router.POST("/webhook", Index)
+	router.POST("/webhook", Handle)
+	router.GET("/webhook", Index)
+	router.ServeFiles("/webhook/*filepath", http.Dir("static"))
 	log.Println("listening on :8081")
 	log.Fatal(http.ListenAndServe(":8081", router))
 }
