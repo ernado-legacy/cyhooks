@@ -78,25 +78,34 @@ func Index(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
 			log.Println("not mester, aborting")
 			return
 		}
-		path := filepath.Join(user, repo)
+		path := filepath.Join("cache", user, repo)
 		cmd := new(exec.Cmd)
 		if _, err := os.Stat(path); os.IsNotExist(err) {
 			log.Println("cloning", sshPath, "to", path)
 			cmd = exec.Command("git", "clone", sshPath)
-			cmd.Dir = user
+			cmd.Dir = filepath.Join("cache", user)
 		} else {
 			log.Println("pulling", sshPath)
 			cmd = exec.Command("git", "pull")
 			cmd.Dir = path
 		}
+		cmd.Stderr = os.Stderr
+		cmd.Stdin = os.Stdin
 		if err = os.MkdirAll(cmd.Dir, 0777); err != nil {
 			log.Println(cmd.Dir, err)
 			return
 		}
 		out, err = cmd.Output()
-		log.Print(string(out))
+		if len(out) > 0 {
+			log.Print(string(out))
+		} else {
+			log.Println("no output")
+		}
 		if err != nil {
-			log.Print(err)
+			log.Println("failed to pull:", err)
+			if err := os.RemoveAll(path); err != nil {
+				log.Println(err)
+			}
 			return
 		}
 		log.Println("updating")
@@ -105,7 +114,7 @@ func Index(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
 		out, err = cmd.Output()
 		log.Print(string(out))
 		if err != nil {
-			log.Print(err)
+			log.Print("failed to update:", err)
 			return
 		}
 		log.Println(repo, "updated")
