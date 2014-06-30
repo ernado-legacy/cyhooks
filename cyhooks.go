@@ -37,8 +37,8 @@ type HookEvent struct {
 	Ok        bool
 }
 
-func (e *HookEvent) Output() string {
-	return string(e.OutputRaw.Bytes())
+func (e *HookEvent) Output() template.HTML {
+	return template.HTML(strings.Replace(string(e.OutputRaw.Bytes()), "\n", "<br>", -1))
 }
 
 func (e *HookEvent) Fail() {
