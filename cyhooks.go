@@ -110,6 +110,8 @@ func Index(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
 		}
 		log.Println("updating")
 		cmd = exec.Command("fab", "update")
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
 		cmd.Dir = path
 		out, err = cmd.Output()
 		log.Print(string(out))
@@ -127,5 +129,6 @@ func main() {
 	runtime.GOMAXPROCS(runtime.NumCPU())
 	router := httprouter.New()
 	router.POST("/webhook", Index)
+	log.Println("listening on :8081")
 	log.Fatal(http.ListenAndServe(":8081", router))
 }
