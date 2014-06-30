@@ -78,6 +78,7 @@ func Index(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
 			log.Println("not mester, aborting")
 			return
 		}
+
 		path := filepath.Join("cache", user, repo)
 		cmd := new(exec.Cmd)
 		if _, err := os.Stat(path); os.IsNotExist(err) {
@@ -89,32 +90,24 @@ func Index(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
 			cmd = exec.Command("git", "pull")
 			cmd.Dir = path
 		}
+
 		cmd.Stderr = os.Stderr
-		cmd.Stdin = os.Stdin
+		cmd.Stdout = os.Stdout
 		if err = os.MkdirAll(cmd.Dir, 0777); err != nil {
 			log.Println(cmd.Dir, err)
 			return
 		}
-		out, err = cmd.Output()
-		if len(out) > 0 {
-			log.Print(string(out))
-		} else {
-			log.Println("no output")
-		}
-		if err != nil {
+		if err = cmd.Run(); err != nil {
 			log.Println("failed to pull:", err)
-			if err := os.RemoveAll(path); err != nil {
-				log.Println(err)
-			}
 			return
 		}
+
 		log.Println("updating")
 		cmd = exec.Command("fab", "update")
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
 		cmd.Dir = path
-		out, err = cmd.Output()
-		log.Print(string(out))
+		err = cmd.Run()
 		if err != nil {
 			log.Print("failed to update:", err)
 			return
