@@ -16,6 +16,7 @@ ADD ssh/known_hosts /root/.ssh/known_hosts
 ADD ssh/id_rsa /root/.ssh/id_rsa
 ADD ssh/id_rsa.pub /root/.ssh/id_rsa.pub
 RUN chmod 700 /root/.ssh/id_rsa
+RUN cp -R /root/.ssh /
 
 RUN apt-get install fabric git -qqy
 
