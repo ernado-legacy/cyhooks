@@ -17,8 +17,9 @@ ADD ssh/id_rsa /root/.ssh/id_rsa
 ADD ssh/id_rsa.pub /root/.ssh/id_rsa.pub
 RUN chmod 700 /root/.ssh/id_rsa
 
-ADD . /go/src/github.com/ernado/cyhooks
+RUN apt-get install fabric -y
 
+ADD . /go/src/github.com/ernado/cyhooks
 RUN cd /go/src/github.com/ernado/cyhooks && go get .
 
 ENTRYPOINT ["cyhooks"]
