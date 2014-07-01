@@ -20,6 +20,7 @@ RUN cp -R /root/.ssh /
 
 RUN apt-get install fabric git -qqy
 
+RUN cp /usr/share/zoneinfo/Europe/Moscow /etc/localtime 
 ADD . /go/src/github.com/ernado/cyhooks
 RUN cd /go/src/github.com/ernado/cyhooks && go get .
 RUN cp -R /go/src/github.com/ernado/cyhooks/static .
