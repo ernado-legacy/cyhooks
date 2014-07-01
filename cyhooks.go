@@ -65,7 +65,8 @@ type HookEvent struct {
 	Id        int64
 	Repo      string
 	Status    string
-	Time      time.Time
+	Start     time.Time
+	Stop      time.Time
 	OutputRaw string
 	Ok        bool
 }
@@ -76,11 +77,26 @@ func (e *HookEvent) Write(p []byte) (n int, err error) {
 }
 
 func (e *HookEvent) Date() string {
-	return e.Time.Truncate(time.Second).Format("2006-01-02 15:04:05")
+	return e.Start.Truncate(time.Second).Format("2006-01-02 15:04:05")
+}
+
+func (e *HookEvent) Duration() string {
+	end := time.Time{}
+	if end == e.Stop {
+		end = time.Now()
+	} else {
+		end = e.Stop
+	}
+	end = end.Truncate(100 * time.Millisecond)
+	return end.Sub(e.Start.Truncate(100 * time.Millisecond)).String()
 }
 
 func (e *HookEvent) Output() template.HTML {
 	return template.HTML(strings.Replace(e.OutputRaw, "\n", "<br>", -1))
+}
+
+func (e *HookEvent) SetStop() {
+	e.Stop = time.Now()
 }
 
 func (e *HookEvent) Fail() {
@@ -100,7 +116,7 @@ func NewHookEvent(repo string) *HookEvent {
 	counter += 1
 	h.Status = "starting"
 	h.Repo = repo
-	h.Time = time.Now()
+	h.Start = time.Now()
 	return h
 }
 
@@ -162,6 +178,7 @@ func Handle(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
 		stderr := io.MultiWriter(os.Stderr, buffer)
 		log.SetOutput(stdout)
 		defer log.SetOutput(os.Stdout)
+		defer pushEvent.SetStop()
 
 		log.Println("updating", repo)
 		if !event.Master() {

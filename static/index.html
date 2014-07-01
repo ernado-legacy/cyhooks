@@ -27,13 +27,15 @@
     <div class="panel {{if .Ok}}panel-success{{ else if eq .Status "failed" }}panel-danger{{ else }}panel-default{{ end }}">
       <div class="panel-heading">
       <a class="heading-link" data-toggle="collapse" data-parent="#accordion" href="#collapse{{.Id}}">
-      {{.Repo}} <span class="label label-default">{{.Status}}</span> <span style="float:right">{{.Date}}  <span class="badge">{{.Id}}</span></span>
+      {{.Repo}} <span class="label label-default">{{.Status}}</span> <span style="float:right">{{.Duration}}  <span class="badge">{{.Id}}</span></span>
       </a>
       </div>
       <div id="collapse{{.Id}}" class="panel-collapse collapse">
       <div class="panel-body">
+        <h5>{{.Date}}</h5>
       <code>
         {{.Output}}
+        }
       </code>
       </div>
       </div>
