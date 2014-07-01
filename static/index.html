@@ -9,6 +9,13 @@
       body {
         padding-top: 40px;
       }
+      .heading-link, .heading-link:hover {
+        text-decoration: none;
+        text-transform:uppercase;
+      }
+      .panel-heading {
+        cursor: pointer;
+      }
     </style>
     <!-- Bootstrap -->
     <link href="/webhook/css/bootstrap.min.css" rel="stylesheet">
@@ -19,8 +26,8 @@
     {{range .}}
     <div class="panel {{if .Ok}}panel-success{{ else if eq .Status "failed" }}panel-danger{{ else }}panel-default{{ end }}">
       <div class="panel-heading">
-      <a data-toggle="collapse" data-parent="#accordion" href="#collapse{{.Id}}">
-      {{.Repo}} {{.Status}} <span style="float:right">{{.Time}} ---- {{.Id}}</span>
+      <a class="heading-link" data-toggle="collapse" data-parent="#accordion" href="#collapse{{.Id}}">
+      {{.Repo}} <span class="label label-default">{{.Status}}</span> <span style="float:right">{{.Date}}  <span class="badge">{{.Id}}</span></span>
       </a>
       </div>
       <div id="collapse{{.Id}}" class="panel-collapse collapse">
@@ -40,5 +47,16 @@
     <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.11.1/jquery.min.js"></script>
     <!-- Include all compiled plugins (below), or include individual files as needed -->
     <script src="/webhook/js/bootstrap.min.js"></script>
+
+    <script type="text/javascript">
+      $('.heading-link').click(function(e){
+            e.stopPropagation();
+            $($(this).attr('href')).collapse('toggle');
+      })
+      $('.panel-heading').click(function(e) {
+            $(this).children('a').click();
+        }
+      )
+    </script>
   </body>
 </html>

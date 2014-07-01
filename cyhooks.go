@@ -1,7 +1,7 @@
 package main
 
 import (
-	"bytes"
+	"encoding/gob"
 	"encoding/json"
 	"fmt"
 	"github.com/julienschmidt/httprouter"
@@ -19,6 +19,39 @@ import (
 
 var counter int64
 var events = make(map[int64]*HookEvent)
+var workdir = "cache"
+var dumpfile = filepath.Join(workdir, "dump.gob")
+
+func Load() {
+	log.Println("loadingg dump file")
+	f, err := os.OpenFile(dumpfile, os.O_RDONLY, 0666)
+	if err != nil {
+		log.Println("no dump file")
+		return
+	}
+	defer f.Close()
+	decoder := gob.NewDecoder(f)
+	if err := decoder.Decode(&events); err != nil {
+		log.Println("failed to decode events", err)
+		return
+	}
+	counter = int64(len(events))
+}
+
+func Dump() {
+	log.Println("saving dump file")
+	f, err := os.OpenFile(dumpfile, os.O_WRONLY|os.O_CREATE, 0666)
+	if err != nil {
+		log.Println("[dump]", err)
+		return
+	}
+	defer f.Close()
+	encoder := gob.NewEncoder(f)
+	if err := encoder.Encode(events); err != nil {
+		log.Println(err)
+	}
+	log.Println("saved")
+}
 
 type PushEvent struct {
 	After      string `json:"after"`
@@ -33,12 +66,21 @@ type HookEvent struct {
 	Repo      string
 	Status    string
 	Time      time.Time
-	OutputRaw bytes.Buffer
+	OutputRaw string
 	Ok        bool
 }
 
+func (e *HookEvent) Write(p []byte) (n int, err error) {
+	e.OutputRaw += string(p)
+	return len(p), nil
+}
+
+func (e *HookEvent) Date() string {
+	return e.Time.Truncate(time.Second).Format("2006-01-02 15:04:05")
+}
+
 func (e *HookEvent) Output() template.HTML {
-	return template.HTML(strings.Replace(string(e.OutputRaw.Bytes()), "\n", "<br>", -1))
+	return template.HTML(strings.Replace(e.OutputRaw, "\n", "<br>", -1))
 }
 
 func (e *HookEvent) Fail() {
@@ -112,9 +154,10 @@ func Handle(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
 	user, repo := event.Get()
 	sshPath := event.String()
 	go func() {
+		defer Dump()
 		var err error
 		pushEvent := NewHookEvent(repo)
-		buffer := &pushEvent.OutputRaw
+		buffer := pushEvent
 		stdout := io.MultiWriter(os.Stdout, buffer)
 		stderr := io.MultiWriter(os.Stderr, buffer)
 		log.SetOutput(stdout)
@@ -178,6 +221,7 @@ func main() {
 	router.POST("/webhook", Handle)
 	router.GET("/webhook", Index)
 	router.ServeFiles("/webhook/*filepath", http.Dir("static"))
+	Load()
 	log.Println("listening on :8081")
 	log.Fatal(http.ListenAndServe(":8081", router))
 }
