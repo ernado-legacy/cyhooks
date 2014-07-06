@@ -117,14 +117,14 @@ func (e *HookEvent) SetStop() {
 func (e *HookEvent) Fail() {
 	e.Ok = false
 	e.SetStatus("failed")
-	update := map[string]interface{}{"ok": false, "set_status": "failed"}
+	update := map[string]interface{}{"ok": false}
 	globalUpdates <- RealtimeEvent{e.Id, "update", update}
 }
 
 func (e *HookEvent) Build() {
 	e.Ok = true
 	e.SetStatus("ok")
-	update := map[string]interface{}{"ok": true, "set_status": "ok"}
+	update := map[string]interface{}{"ok": true}
 	globalUpdates <- RealtimeEvent{e.Id, "update", update}
 }
 
@@ -159,6 +159,11 @@ func (e *HookEvent) SetStatus(status string) {
 
 func Index(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
 	var err error
+	indexTemplate, err = template.ParseFiles("static/index.html")
+	if err != nil {
+		log.Println(err)
+		return
+	}
 	t := indexTemplate
 
 	// getting last 10 events
@@ -337,8 +342,8 @@ func main() {
 	router := httprouter.New()
 	router.POST("/webhook", Handle)
 	router.GET("/webhook", Index)
-	router.GET("/realtime", Realtime)
-	router.ServeFiles("/webhook/*filepath", http.Dir("static"))
+	router.GET("/webhook/realtime", Realtime)
+	router.ServeFiles("/webhook/static/*filepath", http.Dir("static"))
 
 	Load()
 	go Translate()
