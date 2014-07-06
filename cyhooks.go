@@ -280,9 +280,14 @@ func Handle(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
 	fmt.Fprintln(w, "ok")
 }
 
+func checkOrigin(r *http.Request) bool {
+	return true
+}
+
 var upgrader = websocket.Upgrader{
 	ReadBufferSize:  1024,
 	WriteBufferSize: 1024,
+	CheckOrigin:     checkOrigin,
 }
 
 type RealtimeEvent struct {
