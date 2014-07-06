@@ -1,9 +1,13 @@
 package main
 
 import (
+	"crypto/rand"
 	"encoding/gob"
+	"bytes"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"github.com/gorilla/websocket"
 	"github.com/julienschmidt/httprouter"
 	"html/template"
 	"io"
@@ -17,10 +21,16 @@ import (
 	"time"
 )
 
-var counter int64
-var events = make(map[int64]*HookEvent)
-var workdir = "cache"
-var dumpfile = filepath.Join(workdir, "dump.gob")
+var (
+	counter       int64
+	events        = make(map[int64]*HookEvent)
+	workdir       = "cache"
+	dumpfile      = filepath.Join(workdir, "dump.gob")
+	globalUpdates = make(chan RealtimeEvent)
+	listeners     = make(map[string]chan RealtimeEvent)
+	panelTemplate *template.Template
+	indexTemplate *template.Template
+)
 
 func Load() {
 	log.Println("loadingg dump file")
@@ -72,7 +82,10 @@ type HookEvent struct {
 }
 
 func (e *HookEvent) Write(p []byte) (n int, err error) {
-	e.OutputRaw += string(p)
+	data := string(p)
+    data = strings.Replace(data, "\n", "<br>", -1)
+	e.OutputRaw += data
+	globalUpdates <- RealtimeEvent{e.Id, "write", data}
 	return len(p), nil
 }
 
@@ -102,11 +115,26 @@ func (e *HookEvent) SetStop() {
 func (e *HookEvent) Fail() {
 	e.Ok = false
 	e.SetStatus("failed")
+	update := map[string]interface{}{"ok": false}
+	globalUpdates <- RealtimeEvent{e.Id, "update", update}
 }
 
 func (e *HookEvent) Build() {
 	e.Ok = true
 	e.SetStatus("ok")
+	update := map[string]interface{}{"ok": true}
+	globalUpdates <- RealtimeEvent{e.Id, "update", update}
+}
+
+func (e *HookEvent) Render() template.HTML {
+	t := panelTemplate
+	var b bytes.Buffer
+	err := t.Execute(&b, e)
+	if err != nil {
+		log.Println(err)
+		return ""
+	}
+	return template.HTML(b.Bytes())
 }
 
 func NewHookEvent(repo string) *HookEvent {
@@ -117,19 +145,19 @@ func NewHookEvent(repo string) *HookEvent {
 	h.Status = "starting"
 	h.Repo = repo
 	h.Start = time.Now()
+ 	globalUpdates <- RealtimeEvent{h.Id, "new", string(h.Render())}
 	return h
 }
 
 func (e *HookEvent) SetStatus(status string) {
 	e.Status = status
+	update := map[string]string{"status": status}
+	globalUpdates <- RealtimeEvent{e.Id, "update", update}
 }
 
 func Index(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
-	t, err := template.ParseFiles("static/index.html")
-	if err != nil {
-		log.Println(err)
-		return
-	}
+	var err error
+	t := indexTemplate
 
 	// getting last 10 events
 	j := int64(0)
@@ -171,6 +199,9 @@ func Handle(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
 	sshPath := event.String()
 	go func() {
 		defer Dump()
+
+		ticker := time.NewTicker(time.Millisecond * 100)
+		defer ticker.Stop()
 		var err error
 		pushEvent := NewHookEvent(repo)
 		buffer := pushEvent
@@ -181,6 +212,13 @@ func Handle(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
 		defer pushEvent.SetStop()
 
 		log.Println("updating", repo)
+		go func(t *time.Ticker) {
+			for _ = range t.C {
+				update := map[string]string{"duration": pushEvent.Duration()}
+				event := RealtimeEvent{pushEvent.Id, "update", update}
+				globalUpdates <- event
+			}
+		}(ticker)
 		if !event.Master() {
 			log.Println("not master, aborting")
 			pushEvent.Build()
@@ -232,13 +270,77 @@ func Handle(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
 	fmt.Fprintln(w, "ok")
 }
 
+var upgrader = websocket.Upgrader{
+	ReadBufferSize:  1024,
+	WriteBufferSize: 1024,
+}
+
+type RealtimeEvent struct {
+	Id   int64       `json:"id"`
+	Type string      `json:"type"`
+	Body interface{} `json:"body"`
+}
+
+func Translate() {
+	for event := range globalUpdates {
+		go func() {
+			for key := range listeners {
+				listeners[key] <- event
+			}
+		}()
+	}
+}
+
+func Realtime(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
+	conn, err := upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+		return
+	}
+	defer conn.Close()
+	b := make([]byte, 12)
+	rand.Read(b)
+	id := hex.EncodeToString(b)
+
+	eventJson, _ := json.Marshal(RealtimeEvent{0, "id", id})
+	conn.WriteMessage(websocket.TextMessage, eventJson)
+
+	updates := make(chan RealtimeEvent)
+	listeners[id] = updates
+	defer close(updates)
+	defer delete(listeners, id)
+
+	for event := range updates {
+		eventJson, _ := json.Marshal(event)
+		conn.WriteMessage(websocket.TextMessage, eventJson)
+	}
+}
+
 func main() {
+	var err error
+	indexTemplate, err = template.ParseFiles("static/index.html")
+	if err != nil {
+		log.Println(err)
+		return
+	}
+
+	panelTemplate, err = template.ParseFiles("static/panel.html")
+	if err != nil {
+		log.Println(err)
+		return
+	}
+
+
+
 	runtime.GOMAXPROCS(runtime.NumCPU())
 	router := httprouter.New()
 	router.POST("/webhook", Handle)
 	router.GET("/webhook", Index)
+	router.GET("/realtime", Realtime)
 	router.ServeFiles("/webhook/*filepath", http.Dir("static"))
+
 	Load()
+	go Translate()
 	log.Println("listening on :8081")
 	log.Fatal(http.ListenAndServe(":8081", router))
 }
