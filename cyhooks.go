@@ -178,7 +178,6 @@ func Index(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
 		j += 1
 	}
 
-	log.Println("rendering", len(lastEvents), "events")
 	if err = t.Execute(w, lastEvents); err != nil {
 		log.Println(err)
 		return
