@@ -35,15 +35,17 @@
     <script src="/webhook/js/bootstrap.min.js"></script>
 
     <script type="text/javascript">
-      $('.heading-link').click(function(e){
-            e.stopPropagation();
-            $($(this).attr('href')).collapse('toggle');
-      })
-      $('.panel-heading').click(function(e) {
-            $(this).children('a').click();
-        }
-      )
-
+      function setClickEvents() {
+        $('.heading-link').click(function(e){
+              e.stopPropagation();
+              $($(this).attr('href')).collapse('toggle');
+        })
+        $('.panel-heading').click(function(e) {
+              $(this).children('a').click();
+          }
+        )
+      }
+      setClickEvents();
       var host = window.location.host;
       var connection = new WebSocket('ws://' + host + '/realtime');
       connection.onmessage = function (e) {
@@ -62,13 +64,14 @@
             if (value.duration) {
               panel.find(".duration").html(value.duration);
             }
-            if (value.status) {
-              panel.find(".status").html(value.status);
+            if (value.set_status) {
+              console.log('updated status', value.set_status)
+              panel.find(".status").html(value.set_status);
             }
-            if (value.ok == true || value.status == "ok") {
+            if (value.ok == true || value.set_status == "ok") {
               panel.addClass("panel-success");
             } 
-            if (value.status == "failed") {
+            if (value.set_status == "failed") {
               panel.addClass("panel-danger");
             }
             break
@@ -79,6 +82,7 @@
           case "new":
             console.log("new", value);
             l.prepend(value);
+            setClickEvents();
             break
           default:
             console.log(data.type, "is unsupported message type");

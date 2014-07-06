@@ -1,9 +1,9 @@
 package main
 
 import (
+	"bytes"
 	"crypto/rand"
 	"encoding/gob"
-	"bytes"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -83,9 +83,11 @@ type HookEvent struct {
 
 func (e *HookEvent) Write(p []byte) (n int, err error) {
 	data := string(p)
-    data = strings.Replace(data, "\n", "<br>", -1)
+	data = strings.Replace(data, "\n", "<br>", -1)
 	e.OutputRaw += data
-	globalUpdates <- RealtimeEvent{e.Id, "write", data}
+	go func() {
+		globalUpdates <- RealtimeEvent{e.Id, "write", data}
+	}()
 	return len(p), nil
 }
 
@@ -115,14 +117,14 @@ func (e *HookEvent) SetStop() {
 func (e *HookEvent) Fail() {
 	e.Ok = false
 	e.SetStatus("failed")
-	update := map[string]interface{}{"ok": false}
+	update := map[string]interface{}{"ok": false, "set_status": "failed"}
 	globalUpdates <- RealtimeEvent{e.Id, "update", update}
 }
 
 func (e *HookEvent) Build() {
 	e.Ok = true
 	e.SetStatus("ok")
-	update := map[string]interface{}{"ok": true}
+	update := map[string]interface{}{"ok": true, "set_status": "ok"}
 	globalUpdates <- RealtimeEvent{e.Id, "update", update}
 }
 
@@ -145,13 +147,13 @@ func NewHookEvent(repo string) *HookEvent {
 	h.Status = "starting"
 	h.Repo = repo
 	h.Start = time.Now()
- 	globalUpdates <- RealtimeEvent{h.Id, "new", string(h.Render())}
+	globalUpdates <- RealtimeEvent{h.Id, "new", string(h.Render())}
 	return h
 }
 
 func (e *HookEvent) SetStatus(status string) {
 	e.Status = status
-	update := map[string]string{"status": status}
+	update := map[string]string{"set_status": status}
 	globalUpdates <- RealtimeEvent{e.Id, "update", update}
 }
 
@@ -171,6 +173,7 @@ func Index(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
 		j += 1
 	}
 
+	log.Println("rendering", len(lastEvents), "events")
 	if err = t.Execute(w, lastEvents); err != nil {
 		log.Println(err)
 		return
@@ -211,14 +214,16 @@ func Handle(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
 		defer log.SetOutput(os.Stdout)
 		defer pushEvent.SetStop()
 
+		log.Println("handle started")
 		log.Println("updating", repo)
-		go func(t *time.Ticker) {
-			for _ = range t.C {
+		go func() {
+			for _ = range ticker.C {
 				update := map[string]string{"duration": pushEvent.Duration()}
 				event := RealtimeEvent{pushEvent.Id, "update", update}
 				globalUpdates <- event
 			}
-		}(ticker)
+		}()
+		log.Println("is master", event.Master())
 		if !event.Master() {
 			log.Println("not master, aborting")
 			pushEvent.Build()
@@ -283,12 +288,9 @@ type RealtimeEvent struct {
 
 func Translate() {
 	for event := range globalUpdates {
-		log.Println("processing", event)
-		go func() {
-			for key := range listeners {
-				listeners[key] <- event
-			}
-		}()
+		for key := range listeners {
+			listeners[key] <- event
+		}
 	}
 }
 
@@ -330,8 +332,6 @@ func main() {
 		log.Println(err)
 		return
 	}
-
-
 
 	runtime.GOMAXPROCS(runtime.NumCPU())
 	router := httprouter.New()
