@@ -283,6 +283,7 @@ type RealtimeEvent struct {
 
 func Translate() {
 	for event := range globalUpdates {
+		log.Println("processing", event)
 		go func() {
 			for key := range listeners {
 				listeners[key] <- event

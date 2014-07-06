@@ -49,6 +49,7 @@
       connection.onmessage = function (e) {
       	var data = JSON.parse(e.data);
         var value = data.body;
+        console.log(e.data, data);
         var panel = $("#" + data.id);
         var l = $("#accordion");
 
