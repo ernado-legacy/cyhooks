@@ -190,6 +190,10 @@ func (event *PushEvent) Master() bool {
 
 func (event *PushEvent) Get() (string, string) {
 	parts := strings.Split(event.Repository.Url, "/")
+	if len(parts) < 2 {
+		log.Println("bad repo url", event.Repository.Url)
+		return "", ""
+	}
 	return parts[len(parts)-2], parts[len(parts)-1]
 }
 
