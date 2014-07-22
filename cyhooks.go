@@ -199,12 +199,24 @@ func (event *PushEvent) String() string {
 }
 
 func Handle(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
+	defer func() {
+		err := recover()
+		if err != nil {
+			log.Println("recovered:", err)
+		}
+	}()
 	decoder := json.NewDecoder(r.Body)
 	event := new(PushEvent)
 	decoder.Decode(event)
 	user, repo := event.Get()
 	sshPath := event.String()
 	go func() {
+		defer func() {
+			err := recover()
+			if err != nil {
+				log.Println("recovered:", err)
+			}
+		}()
 		defer Dump()
 
 		ticker := time.NewTicker(time.Millisecond * 100)
