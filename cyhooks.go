@@ -21,6 +21,11 @@ import (
 	"time"
 )
 
+const (
+	envSlackToken   = "SLACK_TOKEN"
+	envSlackCompany = "SLACK_COMPANY"
+)
+
 var (
 	counter       int64
 	events        = make(map[int64]*HookEvent)
@@ -30,6 +35,9 @@ var (
 	listeners     = make(map[string]chan RealtimeEvent)
 	panelTemplate *template.Template
 	indexTemplate *template.Template
+	slackToken    = os.Getenv(envSlackToken)
+	slackCompany  = os.Getenv(envSlackCompany)
+	slackUrl      = fmt.Sprintf("https://%s.slack.com/services/hooks/incoming-webhook?token=%s", slackCompany, slackToken)
 )
 
 func Load() {
@@ -61,6 +69,60 @@ func Dump() {
 		log.Println(err)
 	}
 	log.Println("saved")
+}
+
+type SlackAttachment struct {
+	Text    string            `json:"text"`
+	Pretext string            `json:"pretext"`
+	Color   string            `json:"color"`
+	Fields  []SlackEventField `json:"fields"`
+}
+
+type SlackEventField struct {
+	Title string `json:"title"`
+	Value string `json:"value"`
+	Short bool   `json:"short"`
+}
+
+type SlackEvent struct {
+	Text        string            `json:"text"`
+	Color       string            `json:"color"`
+	Attachments []SlackAttachment `json:"attachments"`
+}
+
+func SlackPush(e *HookEvent, repo, status, color string) error {
+	if len(slackCompany) == 0 || len(slackToken) == 0 {
+		return nil
+	}
+	buffer := new(bytes.Buffer)
+	encoder := json.NewEncoder(buffer)
+	event := new(SlackEvent)
+	event.Text = fmt.Sprintf("Build of %s is %s", repo, status)
+	if e != nil {
+		attachment := SlackAttachment{}
+		attachment.Color = color
+		field := SlackEventField{Title: "Repository", Value: repo}
+		field2 := SlackEventField{Title: "Duration", Value: e.Duration()}
+		field3 := SlackEventField{Title: "Date", Value: e.Date()}
+		attachment.Fields = []SlackEventField{field, field2, field3}
+		event.Attachments = []SlackAttachment{attachment}
+	}
+
+	if err := encoder.Encode(event); err != nil {
+		return err
+	}
+	req, err := http.NewRequest("POST", slackUrl, buffer)
+	if err != nil {
+		return err
+	}
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return err
+	}
+	if res.StatusCode != http.StatusOK || res.StatusCode != http.StatusNoContent {
+		return fmt.Errorf("Invalid status: %s (%d)", res.Status, res.StatusCode)
+	}
+	return nil
 }
 
 type PushEvent struct {
@@ -118,6 +180,9 @@ func (e *HookEvent) Fail() {
 	e.Ok = false
 	e.SetStatus("failed")
 	update := map[string]interface{}{"ok": false}
+	if err := SlackPush(e, e.Repo, "failed", "danger"); err != nil {
+		log.Println("Slack:", err)
+	}
 	globalUpdates <- RealtimeEvent{e.Id, "update", update}
 }
 
@@ -125,6 +190,9 @@ func (e *HookEvent) Build() {
 	e.Ok = true
 	e.SetStatus("ok")
 	update := map[string]interface{}{"ok": true}
+	if err := SlackPush(e, e.Repo, "ok", "good"); err != nil {
+		log.Println("Slack:", err)
+	}
 	globalUpdates <- RealtimeEvent{e.Id, "update", update}
 }
 
@@ -236,6 +304,9 @@ func Handle(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
 
 		log.Println("handle started")
 		log.Println("updating", repo)
+		if err := SlackPush(nil, repo, "started", ""); err != nil {
+			log.Println("Slack:", err)
+		}
 		go func() {
 			for _ = range ticker.C {
 				update := map[string]string{"duration": pushEvent.Duration()}
