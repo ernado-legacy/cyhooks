@@ -47,7 +47,7 @@
       }
       setClickEvents();
       var host = window.location.host;
-      var connection = new WebSocket('wss://' + host + '/webhook/realtime');
+      var connection = new WebSocket('ws://' + host + '/webhook/realtime');
       connection.onmessage = function (e) {
       	var data = JSON.parse(e.data);
         var value = data.body;

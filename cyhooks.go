@@ -252,8 +252,8 @@ func Index(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
 	}
 }
 
-func (event *PushEvent) Master() bool {
-	return event.Ref == "refs/heads/master"
+func (event *PushEvent) Dev() bool {
+	return event.Ref == "refs/heads/dev"
 }
 
 func (event *PushEvent) Get() (string, string) {
@@ -281,7 +281,7 @@ func Handle(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
 	event := new(PushEvent)
 	decoder.Decode(event)
 	user, repo := event.Get()
-	sshPath := event.String()
+	// sshPath := event.String()
 	go func() {
 		defer func() {
 			err := recover()
@@ -303,7 +303,7 @@ func Handle(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
 		defer pushEvent.SetStop()
 
 		log.Println("handle started")
-		log.Println("updating", repo)
+		log.Println("updating", user, repo)
 		if err := SlackPush(nil, repo, "started", ""); err != nil {
 			log.Println("Slack:", err)
 		}
@@ -314,45 +314,19 @@ func Handle(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
 				globalUpdates <- event
 			}
 		}()
-		log.Println("is master", event.Master())
-		if !event.Master() {
-			log.Println("not master, aborting")
+		log.Println("is dev", event.Dev())
+		if !event.Dev() {
+			log.Println("not dev, aborting")
 			pushEvent.Build()
 			return
 		}
 
-		path := filepath.Join("cache", user, repo)
-		cmd := new(exec.Cmd)
-		if _, err := os.Stat(path); os.IsNotExist(err) {
-			log.Println("cloning", sshPath, "to", path)
-			cmd = exec.Command("git", "clone", sshPath)
-			cmd.Dir = filepath.Join("cache", user)
-		} else {
-			log.Println("pulling", sshPath)
-			cmd = exec.Command("git", "pull")
-			cmd.Dir = path
-		}
-
+		cmd := exec.Command("/home/ernado/bin/fly", "-t", "ci",
+			"check-resource", "-r" , "stun/dev")
 		cmd.Stderr = stderr
 		cmd.Stdout = stdout
-		if err = os.MkdirAll(cmd.Dir, 0777); err != nil {
-			log.Println(cmd.Dir, err)
-			pushEvent.Fail()
-			return
-		}
-		pushEvent.SetStatus("pulling")
-		if err = cmd.Run(); err != nil {
-			log.Println("failed to pull:", err)
-			pushEvent.Fail()
-			return
-		}
-
 		log.Println("updating")
 		pushEvent.SetStatus("updating")
-		cmd = exec.Command("fab", "update")
-		cmd.Stdout = stdout
-		cmd.Stderr = stderr
-		cmd.Dir = path
 		err = cmd.Run()
 		if err != nil {
 			log.Print("failed to update:", err)
@@ -391,6 +365,7 @@ func Translate() {
 }
 
 func Realtime(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
+	log.Println("realtime", r.RemoteAddr)
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		http.Error(w, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
